@@ -1,86 +1,7 @@
 import numpy as np
 import warnings
-from functions import ActivationFunction, SoftMax, ReLu, CrossEntropy, CostFunction
-
-
-class Layer:
-    """`Layers` are building blocks of a `Network`.
-
-    `Layer` is defined by a `size` (i.e. number of neurons in the Layer)
-    and an `ActivationFunction`.
-
-    `Layers` can be stacked in a `Network` using `network.stack(theLayer)`
-
-    Note:
-        Layer is for now implicitly a Fully-Connected Layer.
-
-    """
-
-    def __init__(self, size: int, activation_function: ActivationFunction = ReLu()):
-        self.size = size
-        self._activation_function = activation_function
-        self._biases = np.random.random(size)
-
-        # Unknown for now, gets updated then when self.initialize get called.
-        self._previous_layer_input_size = 0
-        self._weights = None
-        self._initialised = False
-        self._activation_last_value = None
-
-    def forward_propagate(self, inputs: np.ndarray) -> np.ndarray:
-        """
-        Calculate the outputs of the layer based on inputs
-
-        :param inputs: inputs as a (n_{l-1}, n_samples) np.ndarray
-        :return: outputs as a (n_l, n_samples) np.ndarray
-        """
-        assert self._initialised
-
-        z_array = self._weights.dot(inputs)
-        z_array = np.add(z_array.T, self._biases).T  # not nice for now
-
-        outputs = self._activation_function.value(z_array)
-
-        self._activation_last_value = outputs
-
-        return outputs
-
-    def initialise(self, previous_layer_size: int) -> (int, int):
-        """
-        Initialise the Layer internals using the previous layer info.
-
-        :param previous_layer_size: the size of the previous layer
-        :return: dimensions of the weights matrix as a tuple
-        """
-        self._previous_layer_input_size = previous_layer_size
-        self._weights = np.random.random(self.dims)
-        self._initialised = True
-        return self.dims
-
-    def back_propagate(self, error_signals: np.ndarray) -> np.ndarray:
-        """
-        Propagate the error signals.
-
-        :param error_signals: the incoming error signals as a (n_l, n_samples) np.ndarray
-        :return: the outgoing error signals as a (n_{l-1}, n_samples) np.ndarray
-        """
-        pass
-
-    @property
-    def dims(self) -> (int, int):
-        """
-        Dimensions of the layer weights matrix.
-
-        :rtype: (int,int)
-        """
-        return self.size, self._previous_layer_input_size
-
-    def __str__(self):
-        string = " - Simple Layer\n"
-        string += f"  - Size : {self.size}\n"
-        string += f"  - Activation Function : {self._activation_function}\n"
-        string += f"  - W : {self.dims}\n"
-        return string
+from functions import ActivationFunction, SoftMax, CrossEntropy, CostFunction
+from layer import Layer
 
 
 class Network:
@@ -98,6 +19,7 @@ class Network:
     def __init__(self, input_size):
         self.layers = []
         self.input_size = input_size
+        self._output_size = 0 # to be determined then
         self.done_constructing = False
         self.times_trained = 0
         self.batch_size = 32
@@ -130,6 +52,7 @@ class Network:
         if self.done_constructing:
             raise RuntimeError("Network already set: output() called twice")
 
+        self._output_size = output_size
         output_layer = Layer(size=output_size, activation_function=output_function)
         self.stack(output_layer)
         self.cost_function = cost_function
@@ -191,14 +114,18 @@ class Network:
         print(f"Training the network for the {self.times_trained+1} time")
 
         for epoch in range(num_epochs):
-            print(f" - Epoch {epoch+1} / {num_epochs}")
+            print(f" - Epoch {epoch+1} / {num_epochs}", end=" | ")
 
             for batch_indices in self._batcher(n_sample):
                 x_batch = x_train[:, batch_indices]
                 y_batch = y_train[:, batch_indices]
-                y_valu, pred = self._forward_propagation(x_batch)
-                cost = self.cost_function.value(y_batch, y_valu)
-                self._back_propagation(cost)
+                y_value, y_pred = self._forward_propagation(x_batch)
+                cost = self.cost_function.value(y_value, y_batch)
+                print("Cost : ",cost)
+                error_signal = self.cost_function.der(y_value, y_batch)
+                assert error_signal.shape[0] == self._output_size
+                self._back_propagation(error_signal)
+                self._optimize()
 
         self.times_trained += 1
 
@@ -257,7 +184,7 @@ class Network:
         x_array = error_signals
 
         for layer in reversed(self.layers):
-            x_array = layer.back_propagate(x_array)
+            x_array = layer._back_propagate(x_array)
 
     def __str__(self):
         string = "=========================\n"
@@ -271,3 +198,9 @@ class Network:
         string += f"Cost Function : {self.cost_function}"
         string += "\n=========================\n"
         return string
+
+    def _optimize(self):
+        learning_rate = 0.01
+        for layer in self.layers:
+            layer._optimize(learning_rate)
+

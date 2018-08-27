@@ -8,23 +8,23 @@ class ActivationFunction:
         self._derivative = derivative
 
     def value(self, x_array):
-        return np.apply_along_axis(self._value, 0, x_array)
+        return np.apply_along_axis(self._value, axis=0, arr=x_array)
 
     def der(self, x_array):
-        return self._derivative(x_array)
+        return np.apply_along_axis(self._derivative, axis=0, arr=x_array)
 
 
 class CostFunction:
 
     def __init__(self, value, derivative):
-        self.value = value
-        self.derivative = derivative
+        self._value = value
+        self._derivative = derivative
 
     def value(self, y_hat, y):
-        return self.value(y_hat, y)
+        return self._value(y_hat, y)
 
     def der(self, y_hat, y):
-        return self.derivative(y_hat, y)
+        return self._derivative(y_hat, y)
 
 
 class ReLu(ActivationFunction):
@@ -40,9 +40,19 @@ class ReLu(ActivationFunction):
 
 class Sigmoid(ActivationFunction):
 
+    @staticmethod
+    def _sigmoid_val(x_array):
+        return 1 / (1+np.exp(-x_array))
+
+    @staticmethod
+    def _sigmoid_der(x_array):
+        val = Sigmoid._sigmoid_val(x_array)
+
+        return val * (1 - val)
+
     def __init__(self):
-        value = lambda x_array: 1 / x_array * (x_array > 0)
-        derivative = lambda x_array: 1 * (x_array > 0)
+        value = Sigmoid._sigmoid_val
+        derivative = Sigmoid._sigmoid_der
         super().__init__(value, derivative)
 
     def __str__(self):
@@ -58,7 +68,8 @@ class SoftMax(ActivationFunction):
 
     @staticmethod
     def _softmax_derivative(x_array):
-        pass
+        x_array_vert = x_array.reshape(-1, 1)
+        return np.diagflat(x_array_vert) - np.dot(x_array_vert, x_array_vert.T)
 
     def __init__(self):
         value = SoftMax._softmax_value
@@ -71,20 +82,20 @@ class SoftMax(ActivationFunction):
 
 class CrossEntropy(CostFunction):
 
+    eps = 10e-9
+
     @staticmethod
     def _cross_entropy_value(y, y_hat):
-        eps = 10e-9
         n_sample = y.shape[1]
-        value = - np.sum(np.sum(np.log(y_hat + eps) * y)) / n_sample
+        value = - np.sum(np.sum(np.log(y_hat + CrossEntropy.eps) * y)) / n_sample
 
         return value
 
     @staticmethod
     def _cross_entropy_derivative(y, y_hat):
-        n_sample = y.shape[1]
-        # TODO : replace by the real value
-        value = - np.sum(np.sum(np.log(y_hat) * y)) / n_sample
+        value = - np.mean(y/(y_hat + CrossEntropy.eps), axis=1)
 
+        assert(value.shape[0] == y.shape[0])
         return value
 
     def __init__(self):
