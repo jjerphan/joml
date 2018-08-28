@@ -2,6 +2,9 @@ import numpy as np
 import warnings
 from functions import ActivationFunction, SoftMax, CrossEntropy, CostFunction
 from layer import Layer
+from logger import SimpleLogger, Logger
+from output_layer import SoftMaxCrossEntropy
+from utils import one_hot
 
 
 class Network:
@@ -19,12 +22,17 @@ class Network:
     def __init__(self, input_size):
         self.layers = []
         self.input_size = input_size
-        self._output_size = 0 # to be determined then
+        self._output_layer = SoftMaxCrossEntropy(size=2)
         self.done_constructing = False
         self.times_trained = 0
         self.batch_size = 32
 
-        self.cost_function = CrossEntropy()
+        self.logger = SimpleLogger()
+
+    def with_logger(self, logger: Logger):
+        self.logger = logger
+
+        return self
 
     def stack(self, layer: Layer):
         """
@@ -36,8 +44,7 @@ class Network:
         self.layers.append(layer)
         return self
 
-    def output(self, output_size, output_function: ActivationFunction = SoftMax(),
-               cost_function: CostFunction = CrossEntropy()):
+    def output(self, output_layer):
         """
         Specify the output layer of the network and its property.
 
@@ -52,16 +59,15 @@ class Network:
         if self.done_constructing:
             raise RuntimeError("Network already set: output() called twice")
 
-        self._output_size = output_size
-        output_layer = Layer(size=output_size, activation_function=output_function)
-        self.stack(output_layer)
-        self.cost_function = cost_function
+        self._output_layer = output_layer
 
         previous_layer_size = self.input_size
         dims = []
         for layer in self.layers:
             dims.append(layer.initialise(previous_layer_size))
             previous_layer_size = layer.size
+
+        self._output_layer.initialise(previous_layer_size)
 
         self.done_constructing = True
 
@@ -94,7 +100,7 @@ class Network:
 
         # Checking dimensions consistency
         assert (x_array.shape[0] == self.input_size)
-        assert (y_array.shape[0] == self.layers[-1].size)
+        assert (y_array.shape[0] == self._output_layer.size)
 
     def train(self, x_train: np.ndarray, y_train: np.ndarray, num_epochs=10):
         """
@@ -114,18 +120,29 @@ class Network:
         print(f"Training the network for the {self.times_trained+1} time")
 
         for epoch in range(num_epochs):
-            print(f" - Epoch {epoch+1} / {num_epochs}", end=" | ")
+            print(f"| Epoch {epoch+1} / {num_epochs}")
 
-            for batch_indices in self._batcher(n_sample):
+            for n_b, batch_indices in enumerate(self._batcher(n_sample)):
+
                 x_batch = x_train[:, batch_indices]
                 y_batch = y_train[:, batch_indices]
-                y_value, y_pred = self._forward_propagation(x_batch)
-                cost = self.cost_function.value(y_value, y_batch)
-                print("Cost : ",cost)
-                error_signal = self.cost_function.der(y_value, y_batch)
-                assert error_signal.shape[0] == self._output_size
+
+                y_hat = self._forward_propagation(x_batch)
+
+                y_pred = one_hot(y_hat.argmax(axis=0)).T
+                accuracy = np.mean(1 * (y_pred == y_batch))
+
+                cost = self._output_layer.cost(y_hat, y_batch)
+
+                error_signal = self._output_layer.derivative(y_hat, y_batch)
+
+                assert error_signal.shape[0] == self._output_layer.size
+
                 self._back_propagation(error_signal)
                 self._optimize()
+
+                self.logger.log_cost_accuracy(n_b, cost, accuracy)
+
 
         self.times_trained += 1
 
@@ -147,33 +164,32 @@ class Network:
             warnings.warn("The network has not been trained yet: results will be fuzy!")
 
         n_sample = x_test.shape[1]
-        y_value = y_test * 0
-        y_pred = np.ndarray.astype(y_test * 0, int)
+        y_hat = y_test * 0
 
         for batch_indices in self._batcher(n_sample):
             x_batch = x_test[:, batch_indices]
-            y_value[:, batch_indices], y_pred[:, batch_indices] = self._forward_propagation(x_batch)
+            y_hat[:, batch_indices] = self._forward_propagation(x_batch)
 
+        y_pred = one_hot(y_hat.argmax(axis=0)).T
         prec = np.mean(1 * (y_pred == y_test))
 
-        return prec, y_value, y_pred
+        return prec, y_hat, y_pred
 
     def _forward_propagation(self, inputs: np.ndarray) -> (np.ndarray, np.ndarray):
         """
-        Computes the values and predictions for given inputs.
+        Computes the values for given inputs.
 
         :param inputs: inputs as a (input_size, n_samples) np.ndarray
-        :return: outputs values and associated predictions
+        :return: outputs values
         """
         x_array = inputs
 
         for layer in self.layers:
             x_array = layer.forward_propagate(x_array)
 
-        y_values = x_array
-        y_preds = np.rint(y_values)
+        y_values = self._output_layer.forward_propagate(x_array)
 
-        return y_values, y_preds
+        return y_values
 
     def _back_propagation(self, error_signals: np.ndarray):
         """
@@ -181,26 +197,32 @@ class Network:
 
         :param error_signals: error signals as a (output_size, n_samples) np.ndarray
         """
-        x_array = error_signals
-
+        W_T_l, delta_l = self._output_layer.back_propagate(error_signals)
         for layer in reversed(self.layers):
-            x_array = layer._back_propagate(x_array)
+            assert(W_T_l.shape[0] == layer.size)
+            W_T_l, delta_l = layer.back_propagate(W_T_l, delta_l)
 
     def __str__(self):
         string = "=========================\n"
         string += "Basic simple network\n"
-        string += "Layers:\n"
+        string += f" - Input size: {self.input_size}\n"
+        string += f" - Times trained: {self.times_trained}\n"
+        string += f" - Batch size: {self.batch_size}\n"
+        string += "\nLayers:\n"
         for (i, layer) in enumerate(self.layers):
             string += f" - Layer #{i}"
             string += str(layer)
             string += "\n"
 
-        string += f"Cost Function : {self.cost_function}"
+        string += str(self._output_layer)
+
         string += "\n=========================\n"
         return string
 
     def _optimize(self):
         learning_rate = 0.01
+
+        self._output_layer.optimize(learning_rate)
         for layer in self.layers:
             layer._optimize(learning_rate)
 

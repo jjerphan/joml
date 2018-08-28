@@ -3,22 +3,35 @@ import numpy as np
 from functions import ActivationFunction, ReLu
 
 
-class Layer:
-    """`Layers` are building blocks of a `Network`.
+class SoftMaxCrossEntropy:
 
-    `Layer` is defined by a `size` (i.e. number of neurons in the Layer)
-    and an `ActivationFunction`.
+    @staticmethod
+    def _softmax_value(x_array: np.ndarray):
+        # Shifted for numerical stability
+        exps = np.exp(x_array - np.max(x_array))
+        return exps / np.sum(exps)
 
-    `Layers` can be stacked in a `Network` using `network.stack(theLayer)`
+    # To apply this on a matrices but column wise
+    @staticmethod
+    def value(x_array: np.ndarray):
+        return np.apply_along_axis(SoftMaxCrossEntropy._softmax_value, axis=0, arr=x_array)
 
-    Note:
-        Layer is for now implicitly a Fully-Connected Layer.
+    @staticmethod
+    def derivative(y_hat: np.ndarray, y: np.ndarray):
+        n_sample = y_hat.shape[0]
+        return (y_hat - y) / n_sample
 
-    """
+    eps = 10e-9
 
-    def __init__(self, size: int, activation_function: ActivationFunction = ReLu()):
+    @staticmethod
+    def cost(y, y_hat):
+        n_sample = y.shape[1]
+        value = - np.sum(np.sum(np.log(y_hat + SoftMaxCrossEntropy.eps) * y)) / n_sample
+
+        return value
+
+    def __init__(self, size: int):
         self.size = size
-        self._activation_function = activation_function
 
         # Initialization with a small magnitude
         self._biases = np.zeros(size) + 0.001
@@ -27,10 +40,11 @@ class Layer:
         self._previous_layer_input_size = 0
         self._weights = None
         self._initialised = False
+
         self._input_last_value = None
         self._activation_last_value = None
-        self.delta_l = None # layer l (this layer)
-        self.delta_lp1 = None # layer l - 1 (previous layer)
+        self.delta_L = None  # layer l (this layer)
+        self._error_last_value_last_layer = None  # layer l - 1 (previous layer)
 
     def forward_propagate(self, inputs: np.ndarray) -> np.ndarray:
         """
@@ -42,15 +56,15 @@ class Layer:
         assert self._initialised
 
         # For now, let's take the mean
-        self._input_last_value = inputs# np.mean(inputs, axis=1)
+        self._input_last_value = inputs#np.mean(inputs, axis=1)
         assert self._input_last_value.shape[0] == self._previous_layer_input_size
 
         z_array = self._weights.dot(inputs)
         z_array = np.add(z_array.T, self._biases).T  # not nice for now
 
-        outputs = self._activation_function.value(z_array)
+        outputs = self.value(z_array)
 
-        self._activation_last_value = outputs #np.mean(outputs, axis=1)
+        self._activation_last_value = outputs#np.mean(outputs, axis=1)
         assert self._activation_last_value.shape[0] == self.size
 
         return outputs
@@ -68,25 +82,25 @@ class Layer:
         self._initialised = True
         return self.dims
 
-    def back_propagate(self, W_T_lp1: np.ndarray, delta_lp1):
+    def back_propagate(self, y: np.ndarray):
         """
         Propagate the error signals.
 
-        :param errors: the incoming error signals as a (n_l, 1) np.ndarray
+        :param y: the incoming error signals as a (n_l, 1) np.ndarray
         :return: the outgoing error signals as a (n_{l-1}, 1) np.ndarray
         """
-        der = self._activation_function.der(self._activation_last_value)
-        delta_l = W_T_lp1 * der
-        assert(delta_l.shape[0] == self.size)
+        y_hat = self._activation_last_value
+        # Value of the derivative for the Softmax/CrossEntropy combo
+        delta_L = y_hat - y
+        assert(delta_L.shape[0] == self.size)
 
-        W_T_l = self._weights.T.dot(delta_l)
+        W_T_L = self._weights.T.dot(delta_L)
 
-        self.delta_lp1 = delta_lp1
-        self.delta_l = delta_l
+        self.delta_L = delta_L
 
-        return W_T_l, delta_l
+        return W_T_L, delta_L
 
-    def _optimize(self, learning_rate: float):
+    def optimize(self, learning_rate: float):
         """
         Perform a gradient descent on the weights
 
@@ -94,19 +108,19 @@ class Layer:
         :return:
         """
         # print("Weights", self._weights.shape)
-
         a_lminus1 = self._input_last_value.mean(axis=1).reshape(-1, 1)
-        delta_l = self.delta_l.mean(axis=1).reshape(-1, 1)
+        delta_L = self.delta_L.mean(axis=1).reshape(-1, 1)
         # print("a_lminus1", a_lminus1.shape)
-        # print("delta_l", delta_l.shape)
-        gradient = delta_l.dot(a_lminus1.T)
+        # print("delta_L", delta_L.shape)
+        gradient = delta_L.dot(a_lminus1.T)
         # print("gradient", gradient.shape)
 
         old = self._weights
+        # print(gradient)
         self._weights -= learning_rate * gradient
         # print("Biases", self._biases.shape)
-        # print("Error", delta_l.shape)
-        self._biases -= learning_rate * np.ndarray.flatten(delta_l)
+        # print("Error", delta_L.shape)
+        self._biases -= learning_rate * np.ndarray.flatten(delta_L)
 
     @property
     def dims(self) -> (int, int):
@@ -118,8 +132,9 @@ class Layer:
         return self.size, self._previous_layer_input_size
 
     def __str__(self):
-        string = " - Simple Layer\n"
+        string = " - Output Layer\n"
         string += f"  - Size : {self.size}\n"
-        string += f"  - Activation Function : {self._activation_function}\n"
+        string += f"  - Activation Function : SoftMax\n"
+        string += f"  - Cost Function : Cross Entropy\n"
         string += f"  - W : {self.dims}\n"
         return string
