@@ -1,125 +1,162 @@
 import numpy as np
 
-from functions import ActivationFunction, ReLu
+from joml.functions import ActivationFunction, ReLu, SoftMax
 
 
 class Layer:
-    """`Layers` are building blocks of a `Network`.
 
-    `Layer` is defined by a `size` (i.e. number of neurons in the Layer)
-    and an `ActivationFunction`.
-
-    `Layers` can be stacked in a `Network` using `network.stack(theLayer)`
-
-    Note:
-        Layer is for now implicitly a Fully-Connected Layer.
-
-    """
-
-    def __init__(self, size: int, activation_function: ActivationFunction = ReLu()):
+    def __init__(self, size: int, activation_function: ActivationFunction = ReLu(), name="Simple Layer"):
+        self.name = name
         self.size = size
         self._activation_function = activation_function
-
-        # Initialization with a small magnitude
-        self._biases = np.zeros(size) + 0.001
+        self._initialised = False
 
         # Unknown for now, gets updated then when self.initialize get called.
-        self._previous_layer_input_size = 0
-        self._weights = None
-        self._initialised = False
-        self._input_last_value = None
-        self._activation_last_value = None
-        self.delta_l = None # layer l (this layer)
-        self.delta_lp1 = None # layer l - 1 (previous layer)
+        self._previous_layer_size = 0
+
+        # Parameters for the affine transformation from layer l-1 to layer l
+        self.W = None
+        self.b = np.zeros(size) + 0.001  # Initialization with a small magnitude
+
+        # Last activation from previous layer
+        self.a_lm1 = None
+
+        # Last affine transformation of combination of inputs on this layer
+        self.z_l = None
+
+        # Error on this layer l
+        self.delta_l = None
+
+    def __str__(self):
+        string = f" - {self.name}\n"
+        string += f"  - Size : {self.size}\n"
+        string += f"  - Activation Function : {self._activation_function}\n"
+        string += f"  - Dims : {self.dims}\n"
+        string += f"  - W shape : {self.W.shape}\n"
+        return string
+
+    @property
+    def dims(self) -> (int, int):
+        return self.size, self._previous_layer_size
+
+    @staticmethod
+    def from_W_b(previous_layer_size: int, W: np.ndarray, b: np.ndarray):
+        size = b.shape[0]
+        layer = Layer(size)
+        layer._previous_layer_size = previous_layer_size
+        layer.W = W
+        layer.b = b
+        layer._initialised = True
+
+        return layer
 
     def forward_propagate(self, inputs: np.ndarray) -> np.ndarray:
-        """
-        Calculate the outputs of the layer based on inputs
-
-        :param inputs: inputs as a (n_{l-1}, n_samples) np.ndarray
-        :return: outputs as a (n_l, n_samples) np.ndarray
-        """
         assert self._initialised
 
-        # For now, let's take the mean
-        self._input_last_value = inputs# np.mean(inputs, axis=1)
-        assert self._input_last_value.shape[0] == self._previous_layer_input_size
+        assert inputs.shape[0] == self._previous_layer_size
+        self.a_lm1 = inputs
 
-        z_array = self._weights.dot(inputs)
-        z_array = np.add(z_array.T, self._biases).T  # not nice for now
+        # Affine transform
+        z_array = self.W.dot(inputs)
+        # NOTE : Double transposition, works for now but not nice
+        z_array = np.add(z_array.T, self.b).T
+
+        self.z_l = z_array
 
         outputs = self._activation_function.value(z_array)
 
-        self._activation_last_value = outputs #np.mean(outputs, axis=1)
-        assert self._activation_last_value.shape[0] == self.size
+        assert self.z_l.shape[0] == self.size
 
         return outputs
 
     def initialise(self, previous_layer_size: int) -> (int, int):
-        """
-        Initialise the Layer internals using the previous layer info.
-
-        :param previous_layer_size: the size of the previous layer
-        :return: dimensions of the weights matrix as a tuple
-        """
-        self._previous_layer_input_size = previous_layer_size
-        # He-et-al initialization
-        self._weights = np.random.randn(self.dims[0], self.dims[1]) * 2 / np.sqrt(self._previous_layer_input_size)
+        self._previous_layer_size = previous_layer_size
+        # He-et-al initialization for the weights
+        self.W = np.random.randn(self.dims[0], self.dims[1]) * 2 / np.sqrt(self._previous_layer_size)
         self._initialised = True
         return self.dims
 
-    def back_propagate(self, W_T_lp1: np.ndarray, delta_lp1):
-        """
-        Propagate the error signals.
-
-        :param errors: the incoming error signals as a (n_l, 1) np.ndarray
-        :return: the outgoing error signals as a (n_{l-1}, 1) np.ndarray
-        """
-        der = self._activation_function.der(self._activation_last_value)
+    def back_propagate(self, W_T_lp1: np.ndarray, delta_lp1: np.ndarray):
+        # General error with activation functions
+        der = self._activation_function.der(self.z_l)
         delta_l = W_T_lp1 * der
-        assert(delta_l.shape[0] == self.size)
+        assert (delta_l.shape[0] == self.size)
 
-        W_T_l = self._weights.T.dot(delta_l)
+        # We need to pass this so that the previous layer
+        # can calculate its errors
+        W_T_delta_l = self.W.T.dot(delta_l)
 
-        self.delta_lp1 = delta_lp1
         self.delta_l = delta_l
 
-        return W_T_l, delta_l
+        return W_T_delta_l, delta_l
 
-    def _optimize(self, learning_rate: float):
-        """
-        Perform a gradient descent on the weights
+    def get_d_W(self) -> np.ndarray:
+        # NOTE : taking the means and then the outer product isn't the same as taking
+        # outer products and then taking the mean of the result
+        # Tedious boilerplate bellow: could be improved
+        a_lm1_T = self.a_lm1.T
+        delta_l_T = self.delta_l.T
+        d_W = self.W * 0
+        for a_T, d_T in zip(a_lm1_T, delta_l_T):
+            delta_l = d_T.reshape(-1, 1)
+            a = a_T.reshape(-1, 1).T
+            d_W += delta_l.dot(a)
 
-        :param learning_rate:
-        :return:
-        """
-        # print("Weights", self._weights.shape)
+        n_sample = self.a_lm1.shape[1]
+        d_W /= n_sample
 
-        a_lminus1 = self._input_last_value.mean(axis=1).reshape(-1, 1)
-        delta_l = self.delta_l.mean(axis=1).reshape(-1, 1)
-        # print("a_lminus1", a_lminus1.shape)
-        # print("delta_l", delta_l.shape)
-        gradient = delta_l.dot(a_lminus1.T)
-        # print("gradient", gradient.shape)
+        return d_W
 
-        old = self._weights
-        self._weights -= learning_rate * gradient
-        # print("Biases", self._biases.shape)
-        # print("Error", delta_l.shape)
-        self._biases -= learning_rate * np.ndarray.flatten(delta_l)
+    def get_d_b(self) -> np.ndarray:
+        return self.delta_l.mean(axis=1)
 
-    @property
-    def dims(self) -> (int, int):
-        """
-        Dimensions of the layer weights matrix.
+    def optimize(self, learning_rate: float):
+        # Gettings gradients
+        d_W = self.get_d_W()
+        d_b = self.get_d_b()
 
-        :rtype: (int,int)
-        """
-        return self.size, self._previous_layer_input_size
+        self.W -= learning_rate * d_W
+        self.b -= learning_rate * d_b
+
+class SoftMaxCrossEntropyOutputLayer(Layer):
+
+    def __init__(self, size: int):
+        super().__init__(size, activation_function=SoftMax(), name="OutputLayer")
 
     def __str__(self):
-        string = " - Simple Layer\n"
-        string += f"  - Size : {self.size}\n"
-        string += f"  - Activation Function : {self._activation_function}\n"
-        string += f"  - W : {self.dims}\n"
+        string = super().__str__()
+        string += f"  - Cost Function : Cross Entropy\n"
         return string
+
+    @staticmethod
+    def from_W_b(previous_layer_size: int, W: np.ndarray, b: np.ndarray):
+        size = b.shape[0]
+        layer = SoftMaxCrossEntropyOutputLayer(size)
+        layer._previous_layer_size = previous_layer_size
+        layer.b = b
+        layer.W = W
+        layer._initialised = True
+
+        return layer
+
+    @staticmethod
+    def cost(y, y_hat) -> float:
+        eps = 10e-9
+        n_sample = y.shape[1]
+        value = - np.sum(np.sum(np.log(y_hat + eps) * y)) / n_sample
+
+        return value
+
+    def back_propagate(self, y: np.ndarray, **kwargs) -> (np.ndarray, np.ndarray):
+        # Value of the error with the Softmax/CrossEntropy combo
+        y_hat = self._activation_function.value(self.z_l)
+        delta_l = y_hat - y
+        assert (delta_l.shape[0] == self.size)
+
+        W_T_delta_l = self.W.T.dot(delta_l)
+
+        self.delta_l = delta_l
+
+        return W_T_delta_l, delta_l
+
+

@@ -1,10 +1,9 @@
 import numpy as np
 import warnings
-from functions import ActivationFunction, SoftMax, CrossEntropy, CostFunction
-from layer import Layer
-from logger import SimpleLogger, Logger
-from output_layer import SoftMaxCrossEntropy
-from utils import one_hot
+
+from joml.layer import Layer, SoftMaxCrossEntropyOutputLayer
+from joml.logger import StdOutLogger, Logger
+from joml.utils import one_hot
 
 
 class Network:
@@ -13,49 +12,78 @@ class Network:
 
     A `Network` is defined using an input_size.
     `Layers` can be then stacked in the network using `network.stack`.
+
     After `Layers` being stacked, the output can be defined using `network.output`.
     Finally, the `Network` can be trained and test using `network.train` and `network.test`
     on given datasets.
 
+    A `Network` can also embedded a specific `Logger` to output result in the standard output
+    or in a csv file for example. See `network.with_logger` and `Loggers`
+
+    A `Network` can also be constructed from given weights matrices and bias vectors
+    using the static method `Network.create_from_W_b`
+
+    Weights and biases of a network can also be extracted using `network.get_Ws_bs`.
     """
 
-    def __init__(self, input_size):
+    def __init__(self, input_size, name="Simple Network"):
         self.layers = []
         self.input_size = input_size
-        self._output_layer = SoftMaxCrossEntropy(size=2)
+        self._output_layer = SoftMaxCrossEntropyOutputLayer(size=2)
         self.done_constructing = False
         self.times_trained = 0
         self.batch_size = 32
 
-        self.logger = SimpleLogger()
+        self.name = name
+        self.logger = StdOutLogger()
+
+    def __str__(self):
+        string = "=========================\n"
+        string += f"{self.name}\n"
+        string += f" - Input size: {self.input_size}\n"
+        string += f" - Times trained: {self.times_trained}\n"
+        string += f" - Batch size: {self.batch_size}\n"
+        string += "\nLayers:\n"
+        for (i, layer) in enumerate(self.layers):
+            string += f" - Layer #{i+1}"
+            string += str(layer)
+            string += "\n"
+
+        string += str(self._output_layer)
+
+        string += "\n=========================\n"
+        return string
+
+    @staticmethod
+    def create_from_Ws_and_bs(weights_matrices: list, biases_vectors: list):
+
+        input_size = weights_matrices[0].shape[1]
+        network = Network(input_size=input_size)
+
+        last_W = weights_matrices.pop()
+        last_b = biases_vectors.pop()
+
+        previous_layer_size = input_size
+        packs = zip(weights_matrices, biases_vectors)
+        for W, b in packs:
+            layer = Layer.from_W_b(previous_layer_size, W, b)
+            previous_layer_size = layer.size
+            network.stack(layer)
+
+        network._output_layer = SoftMaxCrossEntropyOutputLayer.from_W_b(previous_layer_size, last_W, last_b)
+        network.done_constructing = True
+
+        return network
 
     def with_logger(self, logger: Logger):
         self.logger = logger
-
         return self
 
     def stack(self, layer: Layer):
-        """
-        Add a layer to the network
-        :param layer: a new Layer to add
-
-        :return: the same network
-        """
         self.layers.append(layer)
         return self
 
-    def output(self, output_layer):
-        """
-        Specify the output layer of the network and its property.
-
-        From there on, the network can be trained and used.
-
-        :param output_size: the output size of the network
-        :param output_function: the ActivationFunction of the last layer (defaulted to SoftMax)
-        :param cost_function: the CostFunction to use (defaulted to CrossEntropy)
-
-        :return: the same network (now initialized)
-        """
+    def output(self, output_layer: SoftMaxCrossEntropyOutputLayer):
         if self.done_constructing:
             raise RuntimeError("Network already set: output() called twice")
 
@@ -73,57 +101,21 @@ class Network:
 
         return self
 
-    def _batcher(self, n_samples):
-        """
-        A simple generator of indices to access batches of the data.
-
-        :param n_samples: the total number of the data given.
-        """
-        n_batches = n_samples // self.batch_size
-        n_batches += 1 * (n_samples % self.batch_size != 0)
-        for i in range(n_batches):
-            yield range(i * self.batch_size, min(n_samples, (i + 1) * self.batch_size) - 1)
-
-    def _prepropagation_check(self, x_array: np.ndarray, y_array: np.ndarray):
-        """
-        Some consistency verifications before propagation on the dimensions of inputs
-        and on the their compatibility with respect to the network properties.
-
-        :param x_array:
-        :param y_array:
-        """
-        if not self.done_constructing:
-            raise RuntimeError("Network not yet initialised : define output layer using output()")
-
-        # Checking samples consistency
-        assert (x_array.shape[1] == y_array.shape[1])
-
-        # Checking dimensions consistency
-        assert (x_array.shape[0] == self.input_size)
-        assert (y_array.shape[0] == self._output_layer.size)
-
-    def train(self, x_train: np.ndarray, y_train: np.ndarray, num_epochs=10):
-        """
-        Train the network using the provided data.
-
-        :param x_train: a np.ndarray of size (input_size, n_samples)
-        :param y_train: a np.ndarray of size (output_size, n_samples
-        :param num_epochs: the number of epoches used to train the network
-
-        :return: the same network trained one more time
-        """
-
+    def train(self, x_train: np.ndarray, y_train: np.ndarray, num_epochs=10, verbose=True):
         self._prepropagation_check(x_train, y_train)
+
+        def printv(t):
+            if(verbose):
+                print(t)
 
         n_sample = x_train.shape[1]
 
-        print(f"Training the network for the {self.times_trained+1} time")
+        printv(f"Training the network for the {self.times_trained+1} time")
 
         for epoch in range(num_epochs):
-            print(f"| Epoch {epoch+1} / {num_epochs}")
+            printv(f"| Epoch {epoch+1} / {num_epochs}")
 
-            for n_b, batch_indices in enumerate(self._batcher(n_sample)):
-
+            for n_b, batch_indices in enumerate(self._batcher(self.batch_size, n_sample)):
                 x_batch = x_train[:, batch_indices]
                 y_batch = y_train[:, batch_indices]
 
@@ -134,30 +126,19 @@ class Network:
 
                 cost = self._output_layer.cost(y_hat, y_batch)
 
-                error_signal = self._output_layer.derivative(y_hat, y_batch)
+                assert y_hat.shape[0] == self._output_layer.size
+                assert y_batch.shape[0] == self._output_layer.size
 
-                assert error_signal.shape[0] == self._output_layer.size
-
-                self._back_propagation(error_signal)
+                self._back_propagation(y_batch)
                 self._optimize()
 
-                self.logger.log_cost_accuracy(n_b, cost, accuracy)
-
+            self.logger.log_cost_accuracy(n_b, cost, accuracy)
 
         self.times_trained += 1
 
         return self
 
     def test(self, x_test: np.ndarray, y_test: np.ndarray):
-        """
-        Test the network using the provided data.
-
-        :param x_test: a np.ndarray of size (input_size, n_samples)
-        :param y_test: a np.ndarray of size (output_size, n_samples
-
-        :return: the precision of predictions, outputs values and their associated predictions.
-        """
-
         self._prepropagation_check(x_test, y_test)
 
         if self.times_trained == 0:
@@ -173,56 +154,72 @@ class Network:
         y_pred = one_hot(y_hat.argmax(axis=0)).T
         prec = np.mean(1 * (y_pred == y_test))
 
-        return prec, y_hat, y_pred
+        return y_pred, y_hat, prec
+
+    def get_Ws_bs(self) -> (list,list):
+        Ws = []
+        bs = []
+        for l in self.layers:
+            Ws.append(l.W)
+            bs.append(l.b)
+
+        Ws.append(self._output_layer.W)
+        bs.append(self._output_layer.b)
+
+        return Ws, bs
+
+    # =============== #
+    # Private methods #
+    # =============== #
+
+    @staticmethod
+    def _batcher(batch_size, n_samples, shuffle=True):
+        n_batches = n_samples // batch_size
+        n_batches += 1 * (n_samples % batch_size != 0)
+        indices = np.arange(n_samples)
+        if shuffle:
+            np.random.shuffle(indices)
+        for i in range(n_batches):
+            start_batch = i * batch_size
+            end_batch = min(n_samples, (i + 1) * batch_size)
+            yield indices[start_batch:end_batch]
+
+    def _prepropagation_check(self, x_array: np.ndarray, y_array: np.ndarray):
+        if not self.done_constructing:
+            raise RuntimeError("Network not yet initialised : define output layer using output()")
+
+        # Checking samples consistency
+        assert (x_array.shape[1] == y_array.shape[1])
+
+        # Checking dimensions consistency
+        assert (x_array.shape[0] == self.input_size)
+        assert (y_array.shape[0] == self._output_layer.size)
 
     def _forward_propagation(self, inputs: np.ndarray) -> (np.ndarray, np.ndarray):
-        """
-        Computes the values for given inputs.
-
-        :param inputs: inputs as a (input_size, n_samples) np.ndarray
-        :return: outputs values
-        """
         x_array = inputs
 
         for layer in self.layers:
             x_array = layer.forward_propagate(x_array)
 
-        y_values = self._output_layer.forward_propagate(x_array)
+        y_hat = self._output_layer.forward_propagate(x_array)
 
-        return y_values
+        # Test if same shape, boilerplate here for vector vs matrices
+        have_one_sample = (len(y_hat.shape) == 1 and len(inputs.shape) == 1)
+        have_same_number_samples = have_one_sample or y_hat.shape[1] == inputs.shape[1]
+        assert have_same_number_samples
+        assert (y_hat.shape[0] == self._output_layer.size)
 
-    def _back_propagation(self, error_signals: np.ndarray):
-        """
-        Propagate the error signals in the network
+        return y_hat
 
-        :param error_signals: error signals as a (output_size, n_samples) np.ndarray
-        """
-        W_T_l, delta_l = self._output_layer.back_propagate(error_signals)
+    def _back_propagation(self, y: np.ndarray):
+        W_T_l, delta_l = self._output_layer.back_propagate(y)
         for layer in reversed(self.layers):
-            assert(W_T_l.shape[0] == layer.size)
+            assert (W_T_l.shape[0] == layer.size)
             W_T_l, delta_l = layer.back_propagate(W_T_l, delta_l)
-
-    def __str__(self):
-        string = "=========================\n"
-        string += "Basic simple network\n"
-        string += f" - Input size: {self.input_size}\n"
-        string += f" - Times trained: {self.times_trained}\n"
-        string += f" - Batch size: {self.batch_size}\n"
-        string += "\nLayers:\n"
-        for (i, layer) in enumerate(self.layers):
-            string += f" - Layer #{i}"
-            string += str(layer)
-            string += "\n"
-
-        string += str(self._output_layer)
-
-        string += "\n=========================\n"
-        return string
 
     def _optimize(self):
         learning_rate = 0.01
 
         self._output_layer.optimize(learning_rate)
         for layer in self.layers:
-            layer._optimize(learning_rate)
-
+            layer.optimize(learning_rate)
