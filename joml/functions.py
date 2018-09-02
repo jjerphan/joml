@@ -2,7 +2,12 @@ import numpy as np
 
 
 class ActivationFunction:
+    """
+    `ActivationFunction` are used in `Layer` to perform a non-linear mapping.
 
+    `ActivationFunction` define the value they return based on a input.
+    They also define the value of their derivative.
+    """
     def __init__(self, value, derivative):
         self._value = value
         self._derivative = derivative
@@ -35,7 +40,9 @@ class SoftMax(ActivationFunction):
 
     @staticmethod
     def _softmax_value(x_array):
-        exps = np.exp(x_array - np.max(x_array))
+        C = np.max(x_array)
+        shifted = x_array - C
+        exps = np.exp(shifted)
         return exps / np.sum(exps)
 
     @staticmethod
@@ -50,3 +57,20 @@ class SoftMax(ActivationFunction):
 
     def __str__(self):
         return "Softmax"
+
+
+class Identity(ActivationFunction):
+
+    @staticmethod
+    def _identity_value(x_array): return x_array
+
+    @staticmethod
+    def _identity_derivative(x_array): return (0 * x_array) + 1.0
+
+    def __init__(self):
+        value = Identity._identity_value
+        derivative = Identity._identity_derivative
+        super().__init__(value, derivative)
+
+    def __str__(self):
+        return "Identity"

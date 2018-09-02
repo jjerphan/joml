@@ -1,9 +1,25 @@
 import numpy as np
 
-from joml.functions import ActivationFunction, ReLu, SoftMax
+from joml.functions import ActivationFunction, ReLu, SoftMax, Identity
 
 
 class Layer:
+    """
+    A `Layer` is a building block of a `Network`.
+
+    A `Layer` has a specific `size` the is the number of outputs it yields.
+
+    A `Layer` numbered l (of size N_l) applies a non-linear transformation on inputs a_{l-1} of size N_{l-1}
+    using an `ActivationFunction` and some parameters :
+
+        z_l = W_{l-1,l} a_{l-1} + b_l
+        a_l = σ_l(z_l)
+
+    W_{l-1,l} and b_l  are the parameters (respectively the weights and are biases)
+    whilst σ_l is the `ActivationFunction`.
+
+    `Layers` can be stacked (added) to `Network` using `Network.stack`.
+    """
 
     def __init__(self, size: int, activation_function: ActivationFunction = ReLu(), name="Simple Layer"):
         self.name = name
@@ -46,6 +62,8 @@ class Layer:
         layer._previous_layer_size = previous_layer_size
         layer.W = W
         layer.b = b
+        layer.delta_l = layer.b * 0
+        layer.a_lm1 = np.zeros((previous_layer_size, 1))
         layer._initialised = True
 
         return layer
@@ -73,6 +91,8 @@ class Layer:
         self._previous_layer_size = previous_layer_size
         # He-et-al initialization for the weights
         self.W = np.random.randn(self.dims[0], self.dims[1]) * 2 / np.sqrt(self._previous_layer_size)
+        self.delta_l = self.b * 0
+        self.a_lm1 = np.zeros((previous_layer_size, 1))
         self._initialised = True
         return self.dims
 
@@ -118,6 +138,7 @@ class Layer:
         self.W -= learning_rate * d_W
         self.b -= learning_rate * d_b
 
+
 class SoftMaxCrossEntropyOutputLayer(Layer):
 
     def __init__(self, size: int):
@@ -160,3 +181,48 @@ class SoftMaxCrossEntropyOutputLayer(Layer):
         return W_T_delta_l, delta_l
 
 
+class ReLuMSEOutputLayer(Layer):
+
+    def __init__(self, size: int):
+        super().__init__(size, activation_function=ReLu(), name="SimpleMSEOutputLayer")
+
+    def __str__(self):
+        string = super().__str__()
+        string += f"  - Cost Function : Mean Squared Error\n"
+        return string
+
+    @staticmethod
+    def from_W_b(previous_layer_size: int, W: np.ndarray, b: np.ndarray):
+        size = b.shape[0]
+        layer = ReLuMSEOutputLayer(size)
+
+        if W.shape[1] != previous_layer_size:
+            raise RuntimeError("The dimension are non-consistent:\n"
+                               f"W.shape[1] = {W.shape[1]} != previous_layer_size = {previous_layer_size}")
+
+        layer._previous_layer_size = previous_layer_size
+        layer.b = b
+        layer.W = W
+        layer._initialised = True
+
+        return layer
+
+    @staticmethod
+    def cost(y, y_hat) -> float:
+        n_sample = y.shape[1]
+        value = - np.linalg.norm(y - y_hat) ** 2 / (2 * n_sample)
+
+        return value
+
+    def back_propagate(self, y: np.ndarray, **kwargs) -> (np.ndarray, np.ndarray):
+        # Value of the error with the Identity/MSE combo
+        y_hat = self._activation_function.value(self.z_l)
+        der = self._activation_function.der(self.z_l)
+        delta_l = (y_hat - y) * der
+        assert (delta_l.shape[0] == self.size)
+
+        W_T_delta_l = self.W.T.dot(delta_l)
+
+        self.delta_l = delta_l
+
+        return W_T_delta_l, delta_l
