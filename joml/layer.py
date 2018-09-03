@@ -1,6 +1,6 @@
 import numpy as np
 
-from joml.functions import ActivationFunction, ReLu, SoftMax, Identity
+from joml.functions import ActivationFunction, ReLu, SoftMax
 
 
 class Layer:
@@ -43,9 +43,14 @@ class Layer:
         # Error on this layer l
         self.delta_l = None
 
+        # Last gradient
+        self._last_d_W = 0
+        self._last_d_b = 0
+
     def __str__(self):
         string = f" - {self.name}\n"
         string += f"  - Size : {self.size}\n"
+        string += f"  - # Parameters : {self.get_num_parameters()}\n"
         string += f"  - Activation Function : {self._activation_function}\n"
         string += f"  - Dims : {self.dims}\n"
         string += f"  - W shape : {self.W.shape}\n"
@@ -53,10 +58,21 @@ class Layer:
 
     @property
     def dims(self) -> (int, int):
+        """
+        :return: the shape of W
+        """
         return self.size, self._previous_layer_size
 
     @staticmethod
     def from_W_b(previous_layer_size: int, W: np.ndarray, b: np.ndarray):
+        """
+        Factory of layer : create a Layer from given array of weights and bias.
+
+        :param previous_layer_size: the size of the previous layer.
+        :param W: the matrix of weights to use
+        :param b: the vector of biases to use
+        :return: a `Layer` using this parameters
+        """
         size = b.shape[0]
         layer = Layer(size)
         layer._previous_layer_size = previous_layer_size
@@ -68,18 +84,28 @@ class Layer:
 
         return layer
 
-    def forward_propagate(self, inputs: np.ndarray) -> np.ndarray:
+    def forward_propagate(self, inputs: np.ndarray, persist:bool) -> np.ndarray:
+        """
+        Returns to output of an inputs.
+
+        Persists the inputs and the affine transformation results.
+
+        :param inputs: the considered inputs of size (self._previous_layer_size, n_sample)
+        :return: the associated outputs of size (self.size, n_sample)
+        """
         assert self._initialised
 
         assert inputs.shape[0] == self._previous_layer_size
-        self.a_lm1 = inputs
+        if persist:
+            self.a_lm1 = inputs
 
         # Affine transform
         z_array = self.W.dot(inputs)
         # NOTE : Double transposition, works for now but not nice
         z_array = np.add(z_array.T, self.b).T
 
-        self.z_l = z_array
+        if persist:
+            self.z_l = z_array
 
         outputs = self._activation_function.value(z_array)
 
@@ -88,15 +114,30 @@ class Layer:
         return outputs
 
     def initialise(self, previous_layer_size: int) -> (int, int):
+        """
+        Initialise the `Layer` (in a network) with respect to the surrounding layers
+
+        :param previous_layer_size: size of the previous layer considered
+        :return: the dimensions of W
+        """
         self._previous_layer_size = previous_layer_size
         # He-et-al initialization for the weights
-        self.W = np.random.randn(self.dims[0], self.dims[1]) * 2 / np.sqrt(self._previous_layer_size)
+        self.W = np.random.randn(self.dims[0], self.dims[1]) * np.sqrt(2 / self._previous_layer_size)
         self.delta_l = self.b * 0
         self.a_lm1 = np.zeros((previous_layer_size, 1))
         self._initialised = True
         return self.dims
 
     def back_propagate(self, W_T_lp1: np.ndarray, delta_lp1: np.ndarray):
+        """
+        Compute the error `delta_l` at the inputs based on the error in the outputs.
+
+        Persist the error `delta_l`.
+
+        :param W_T_lp1: the matrix of weights of the next layer
+        :param delta_lp1: the error at the inputs.
+        :return:
+        """
         # General error with activation functions
         der = self._activation_function.der(self.z_l)
         delta_l = W_T_lp1 * der
@@ -111,6 +152,15 @@ class Layer:
         return W_T_delta_l, delta_l
 
     def get_d_W(self) -> np.ndarray:
+        """
+        Computes the gradients for the matrix of weights using the persisted
+        information during forward and backpropagation.
+
+        More precisely the mean of the gradients is actually returned as there
+        can be more than one inputs
+
+        :return: the (average) gradient of W
+        """
         # NOTE : taking the means and then the outer product isn't the same as taking
         # outer products and then taking the mean of the result
         # Tedious boilerplate bellow: could be improved
@@ -128,15 +178,51 @@ class Layer:
         return d_W
 
     def get_d_b(self) -> np.ndarray:
+        """
+        Computes the gradients for the vector of biases using the persisted
+        information backpropagation.
+
+        More precisely the mean of the gradients is actually returned as there
+        can be more than one inputs
+
+        :return: the (average) gradient of b
+        """
         return self.delta_l.mean(axis=1)
 
-    def optimize(self, learning_rate: float):
-        # Gettings gradients
+    def optimize(self, learning_rate: float, momentum: float):
+        """
+        Optimisation routine: Updates the parameters using gradient
+        descent with momentum.
+
+        Persists the gradient computed for the next iteration.
+
+        :param learning_rate: the learning rate to use
+        :param momentum: the proportion of the last gradient to add
+        """
+        # Getting gradients
         d_W = self.get_d_W()
         d_b = self.get_d_b()
 
-        self.W -= learning_rate * d_W
-        self.b -= learning_rate * d_b
+        # Gradient with momentum
+        d_v_W = d_W + momentum * self._last_d_W
+        d_v_b = d_b + momentum * self._last_d_b
+
+        # Persisting those new gradients
+        self._last_d_W = d_v_W
+        self._last_d_b = d_v_b
+
+        # Updating parameters
+        self.W -= learning_rate * d_v_W
+        self.b -= learning_rate * d_v_b
+
+    def get_num_parameters(self)-> int:
+        """
+        :return: the number of parameters in the layer
+        """
+        num_parameter = 0
+        num_parameter += self.b.size
+        num_parameter += self.W.shape[0] * self.W.shape[1]
+        return num_parameter
 
 
 class SoftMaxCrossEntropyOutputLayer(Layer):

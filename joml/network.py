@@ -42,6 +42,7 @@ class Network:
         string = "=========================\n"
         string += f"{self.name}\n"
         string += f" - Input size: {self.input_size}\n"
+        string += f" - # Parameters : {self.get_num_parameters()}\n"
         string += f" - Times trained: {self._times_trained}\n"
         string += f" - Batch size: {self.batch_size}\n"
         string += "\nLayers:\n"
@@ -134,7 +135,8 @@ class Network:
 
         return self
 
-    def train(self, x_train: np.ndarray, y_train: np.ndarray, num_epochs=10, verbose=True, learning_rate=0.01):
+    def train(self, x_train: np.ndarray, y_train: np.ndarray, num_epochs=10, verbose=True,
+              learning_rate=0.01, momentum=0.9):
         """
         Train a `Network` using the data provided for a given number of epochs.
 
@@ -145,6 +147,7 @@ class Network:
         :param num_epochs: the number of epochs for the training
         :param verbose: if true, logs progress
         :param learning_rate: parameter for the gradient descent
+        :param momentum: parameter to add momentum to gradient
         :return: the same `Network` but trained one more time
         """
         self._prepropagation_check(x_train, y_train)
@@ -181,7 +184,7 @@ class Network:
                 assert y_batch.shape[0] == self._output_layer.size
 
                 self._back_propagation(y_batch)
-                self._optimize(learning_rate=learning_rate)
+                self._optimize(learning_rate=learning_rate, momentum=momentum)
 
             self.logger.log_cost_accuracy(n_epoch, cost, accuracy)
 
@@ -217,7 +220,9 @@ class Network:
 
         for batch_indices in self._batcher(self.batch_size, n_sample):
             x_batch = x_test[:, batch_indices]
-            y_hat[:, batch_indices] = self._forward_propagation(x_batch)
+            # Here, we don't persist the results calculate during the forward
+            # propagation because results are persisted uniquely for training
+            y_hat[:, batch_indices] = self._forward_propagation(x_batch, persist=False)
 
         # Doing an hard max on the output to find the prediction
         y_pred = one_hot(y_hat.argmax(axis=0), num_classes=self._output_layer.size)
@@ -226,7 +231,7 @@ class Network:
         return y_pred, y_hat, accuracy
 
     def benchmark(self, x_train: np.ndarray, y_train: np.ndarray, x_test: np.ndarray, y_test: np.ndarray,
-                  num_epochs=10, verbose=True, csv_file_name=None, learning_rate=0.01, warn=True):
+                  num_epochs=10, verbose=True, csv_file_name=None, learning_rate=0.01, momentum=0.9, warn=True):
         """
         Benchmark a network. This consist of training a network with dataset (x_train,_train)
         from scratch and testing it at each iteration with dataset (x_test, y_test)
@@ -246,6 +251,8 @@ class Network:
         :param verbose: if true, logs progress
         :param csv_file_name: the csv file to use to persist the log
         :param learning_rate: parameter for the optimisation routine
+        :param momentum: parameter to add momentum to gradients
+        :param warn: if true, warns about the network being already trained
         :return: a `BenchmarkLogger` containing logs of the benchmark
         """
         self._prepropagation_check(x_train, y_train)
@@ -284,7 +291,7 @@ class Network:
                 assert y_batch.shape[0] == self._output_layer.size
 
                 self._back_propagation(y_batch)
-                self._optimize(learning_rate=learning_rate)
+                self._optimize(learning_rate=learning_rate, momentum=momentum)
 
                 y_pred_test, y_hat_test, test_acc = self.test(x_test, y_test, warn=False)
 
@@ -330,6 +337,18 @@ class Network:
 
         return d_Ws, d_bs
 
+    def get_num_parameters(self)->int:
+        """
+        :return: the total number of parameters in the network
+        """
+        num_parameters = 0
+        for layer in self.layers:
+            num_parameters += layer.get_num_parameters()
+
+        num_parameters += self._output_layer.get_num_parameters()
+
+        return num_parameters
+
     # =============== #
     # Private methods #
     # =============== #
@@ -359,13 +378,13 @@ class Network:
         assert (x_array.shape[0] == self.input_size)
         assert (y_array.shape[0] == self._output_layer.size)
 
-    def _forward_propagation(self, inputs: np.ndarray) -> np.ndarray:
+    def _forward_propagation(self, inputs: np.ndarray, persist=True) -> np.ndarray:
         x_array = inputs
 
         for layer in self.layers:
-            x_array = layer.forward_propagate(x_array)
+            x_array = layer.forward_propagate(x_array, persist=persist)
 
-        y_hat = self._output_layer.forward_propagate(x_array)
+        y_hat = self._output_layer.forward_propagate(x_array, persist=persist)
 
         # Test the consistency w.r.t samples
         # Some boilerplate code here as we need to check both the case of
@@ -387,7 +406,7 @@ class Network:
             assert (W_T_l.shape[0] == layer.size)
             W_T_l, delta_l = layer.back_propagate(W_T_l, delta_l)
 
-    def _optimize(self, learning_rate=0.01):
-        self._output_layer.optimize(learning_rate)
+    def _optimize(self, learning_rate=0.01, momentum=0.9):
+        self._output_layer.optimize(learning_rate, momentum)
         for layer in self.layers:
-            layer.optimize(learning_rate)
+            layer.optimize(learning_rate, momentum)
