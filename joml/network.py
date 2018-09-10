@@ -276,6 +276,7 @@ class Network:
         for n_epoch in range(1, num_epochs + 1):
             printv(f"| Epoch {n_epoch} / {num_epochs}")
 
+            train_cost, test_cost, train_acc, test_acc = 0,0,0,0
             for n_b, batch_indices in enumerate(self._batcher(self.batch_size, n_sample)):
                 x_batch = x_train[:, batch_indices]
                 y_batch = y_train[:, batch_indices]
@@ -298,7 +299,10 @@ class Network:
                 test_cost = self._output_layer.cost(y_hat_test, y_test)
 
                 logger.benchmark_log(train_cost=train_cost, train_acc=train_acc, test_cost=test_cost, test_acc=test_acc)
-
+            print("Training Cost:", train_cost)
+            print("Testing Cost:", test_cost)
+            print("Training Accuracy:", train_acc)
+            print("Testing Accuracy:", test_acc)
         return logger
 
     def get_Ws_bs(self) -> (list, list):

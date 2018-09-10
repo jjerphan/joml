@@ -3,3 +3,6 @@ logs/
 build/
 dist/
 *.egg-info/
+logs/
+.idea
+*__pycache__*

@@ -32,6 +32,9 @@ network.train(x_train,y_train)
 # Profit ! 🚀
 y_pred, y_hat, accuracy = network.test(x_test,y_test)
 ```
+
+See [`examples`](./examples) for some examples.
+
 ## Features
 
 The API is not definitive yet : *More to come soon !*

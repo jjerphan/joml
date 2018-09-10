@@ -47,6 +47,19 @@ class Layer:
         self._last_d_W = 0
         self._last_d_b = 0
 
+        # Adam parameters
+        self.eps = 10 ** (-8)
+        self.t = 1
+        self.beta1_w = 0.9
+        self.beta2_w = 0.999
+        self.m_w = 0
+        self.v_w = 0
+
+        self.beta1_b = 0.9
+        self.beta2_b = 0.999
+        self.m_b = 0
+        self.v_b = 0
+
     def __str__(self):
         string = f" - {self.name}\n"
         string += f"  - Size : {self.size}\n"
@@ -84,7 +97,7 @@ class Layer:
 
         return layer
 
-    def forward_propagate(self, inputs: np.ndarray, persist:bool) -> np.ndarray:
+    def forward_propagate(self, inputs: np.ndarray, persist: bool) -> np.ndarray:
         """
         Returns to output of an inputs.
 
@@ -203,19 +216,26 @@ class Layer:
         d_W = self.get_d_W()
         d_b = self.get_d_b()
 
-        # Gradient with momentum
-        d_v_W = d_W + momentum * self._last_d_W
-        d_v_b = d_b + momentum * self._last_d_b
+        # Adam update (working but not nice for now)
+        self.m_w = self.beta1_w * self.m_w + (1 - self.beta1_w) * d_W
+        self.v_w = self.beta2_w * self.v_w + (1 - self.beta2_w) * (
+                    d_W * d_W)
+        m_w_cap = self.m_w / (1 - (self.beta1_w ** self.t))
+        v_w_cap = self.v_w / (1 - (self.beta2_w ** self.t))
 
-        # Persisting those new gradients
-        self._last_d_W = d_v_W
-        self._last_d_b = d_v_b
+        self.m_b = self.beta1_b * self.m_b + (1 - self.beta1_b) * d_b
+        self.v_b = self.beta2_b * self.v_b + (1 - self.beta2_b) * (
+                    d_b * d_b)
+        m_b_cap = self.m_b / (1 - (self.beta1_b ** self.t))
+        v_b_cap = self.v_b / (1 - (self.beta2_b ** self.t))
+
+        self.t += 1
 
         # Updating parameters
-        self.W -= learning_rate * d_v_W
-        self.b -= learning_rate * d_v_b
+        self.W -= learning_rate * m_w_cap / (np.sqrt(v_w_cap) + self.eps)
+        self.b -= learning_rate * m_b_cap / (np.sqrt(v_b_cap) + self.eps)
 
-    def get_num_parameters(self)-> int:
+    def get_num_parameters(self) -> int:
         """
         :return: the number of parameters in the layer
         """
