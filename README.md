@@ -5,6 +5,13 @@
 
 *JOML* API is quite similar to *Keras* [`Sequential Model` API](https://keras.io/getting-started/sequential-model-guide/).
 
+It is for now available on [TestPypi](http://test.pypi.org/).
+You can install it using this:
+
+```bash
+$ pip install --index-url https://test.pypi.org/project/ joml
+```
+
 ```python
 from joml.network import Network
 from joml.layer import Layer, SoftMaxCrossEntropyOutputLayer
