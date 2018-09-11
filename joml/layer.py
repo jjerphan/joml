@@ -141,19 +141,19 @@ class Layer:
         self._initialised = True
         return self.dims
 
-    def back_propagate(self, W_T_lp1: np.ndarray, delta_lp1: np.ndarray):
+    def back_propagate(self, W_T_delta_lp1: np.ndarray, delta_lp1: np.ndarray):
         """
         Compute the error `delta_l` at the inputs based on the error in the outputs.
 
         Persist the error `delta_l`.
 
-        :param W_T_lp1: the matrix of weights of the next layer
+        :param W_T_delta_lp1: the transpose of the matrix of weights of the next layer dot delta_{l+1}
         :param delta_lp1: the error at the inputs.
         :return:
         """
         # General error with activation functions
         der = self._activation_function.der(self.z_l)
-        delta_l = W_T_lp1 * der
+        delta_l = W_T_delta_lp1 * der
         assert (delta_l.shape[0] == self.size)
 
         # We need to pass this so that the previous layer

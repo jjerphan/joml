@@ -1,0 +1,55 @@
+@startuml
+
+skinparam defaultFontName Inconsolata
+
+class Network {
++ stack(layer)
++ output(output_layer)
++ train(x_train, y_train, num_epochs,\n      learning_rate)
++ test(x_test, y_test)
++ benchmark(x_train, y_train, x_test, y_test,\n          num_epochs, learning_rate)
+- batcher(batch_size, n_samples)
+- prepropagation_check(x_array, y_array)
+- forward_propagation(inputs)
+- back_propagation(y)
+- optimize(learning_rate)
+}
+
+class Layer {
+  + forward_propagate(inputs, persist)
+  + initialise(previous_layer_size)
+  + back_propagate(W_T_lp1, delta_lp1)
+  + get_d_W()
+  + get_d_b()
+  + optimize(learning_rate)
+  + get_num_parameters()
+}
+
+class OutputLayer {
+  + cost(y, y_hat)
+}
+
+note bottom of OutputLayer: Embeds CrossEntropy as\na cost function for now.\nTo be improved
+
+class ActivationFunction {
+
+}
+
+class ReLu {
+
+}
+
+class SoftMax {
+
+}
+
+
+Network "1"*-right-"      *" Layer
+Network "           1"*--"1" OutputLayer
+Layer <|-- OutputLayer
+Layer "1"*--"     1" ActivationFunction
+ActivationFunction <|-down- ReLu
+ActivationFunction <|-down- SoftMax
+OutputLayer *-down- SoftMax
+
+@enduml

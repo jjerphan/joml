@@ -1,5 +1,3 @@
-from time import strftime, gmtime
-
 import numpy as np
 import os
 
@@ -46,16 +44,7 @@ if __name__ == "__main__":
     # Printing information
     print(network)
 
-    # Defining a log file
-    current_datetime = strftime("%Y-%m-%d-%H:%M:%S", gmtime())
-    logs_folder = os.path.join("..", "logs")
-    out_file = os.path.join(logs_folder, f"benchmark_{network.name}-{current_datetime}.csv")
-
-    # Benchmarking the network
-    logger = network.benchmark(x_train, y_train, x_test, y_test, csv_file_name=out_file,
-                               num_epochs=10,
-                               learning_rate=0.002)
-
-    # Dumping results in a CSV file
-    logger.dump_results()
-    logger.plot_benchmark()
+    # Training and testing
+    network.train(x_train, y_train)
+    y_pred, y_hat, acc = network.test(x_test, y_test)
+    print("Testing accuracy :", acc)

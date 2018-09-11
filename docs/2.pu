@@ -1,0 +1,21 @@
+@startuml
+
+skinparam defaultFontName Inconsolata
+
+class Network
+
+class Layer
+
+class OutputLayer
+
+class ActivationFunction
+
+class CostFunction
+
+Network "1"*--"      *" Layer
+Network "           1"*--"1" OutputLayer
+Layer <|-left- OutputLayer
+Layer "1"*--"     1" ActivationFunction
+OutputLayer "     1"*--"1" CostFunction
+
+@enduml

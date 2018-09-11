@@ -1,0 +1,39 @@
+@startuml
+
+skinparam defaultFontName Inconsolata
+
+class Network {
+
+}
+
+class Layer {
+
+}
+
+class OutputLayer {
+}
+
+note bottom of OutputLayer: Embeds CrossEntropy as\na cost function for now.\nTo be improved
+
+class ActivationFunction {
+
+}
+
+class ReLu {
+
+}
+
+class SoftMax {
+
+}
+
+
+Network "1"*-right-"      *" Layer
+Network "           1"*--"1" OutputLayer
+Layer <|-- OutputLayer
+Layer "1"*--"     1" ActivationFunction
+ActivationFunction <|-down- ReLu
+ActivationFunction <|-down- SoftMax
+OutputLayer *-down- SoftMax
+
+@enduml
