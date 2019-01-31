@@ -8,7 +8,7 @@ setuptools.setup(
     version="0.8.6",
     author="Julien Jerphanion",
     author_email="julien.jerphanion@protonmail.com",
-    description="A minimalist numpy-backed Neural Network library 🦎",
+    description="A minimalist numpy-baked Neural Network API 🦎",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/jjerphan/joml",

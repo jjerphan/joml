@@ -53,8 +53,7 @@ if __name__ == "__main__":
 
     # Benchmarking the network
     logger = network.benchmark(x_train, y_train, x_test, y_test, csv_file_name=out_file,
-                               num_epochs=10,
-                               learning_rate=0.002)
+                               num_epochs=10)
 
     # Dumping results in a CSV file
     logger.dump_results()
