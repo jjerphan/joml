@@ -1,4 +1,4 @@
-🦎 JOML: A minimalist `numpy`-backed Neural Network library
+JOML: A minimalist `numpy`-baked Neural Network API 🦎 
 ========================================================
 
 ## Getting started

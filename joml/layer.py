@@ -1,6 +1,9 @@
+import copy
+
 import numpy as np
 
 from joml.functions import ActivationFunction, ReLu, SoftMax
+from joml.optimizer import Adam, Optimizer
 
 
 class Layer:
@@ -21,7 +24,9 @@ class Layer:
     `Layers` can be stacked (added) to `Network` using `Network.stack`.
     """
 
-    def __init__(self, size: int, activation_function: ActivationFunction = ReLu(), name="Simple Layer"):
+    def __init__(self, size: int, activation_function: ActivationFunction=ReLu(),
+                 optimizer: Optimizer=Adam(),
+                 name="Simple Layer"):
         self.name = name
         self.size = size
         self._activation_function = activation_function
@@ -47,18 +52,9 @@ class Layer:
         self._last_d_W = 0
         self._last_d_b = 0
 
-        # Adam parameters
-        self.eps = 10 ** (-8)
-        self.t = 1
-        self.beta1_w = 0.9
-        self.beta2_w = 0.999
-        self.m_w = 0
-        self.v_w = 0
-
-        self.beta1_b = 0.9
-        self.beta2_b = 0.999
-        self.m_b = 0
-        self.v_b = 0
+        # Optimizers for weights and biases
+        self._W_optimizer = copy.deepcopy(optimizer)
+        self._b_optimizer = copy.deepcopy(optimizer)
 
     def __str__(self):
         string = f" - {self.name}\n"
@@ -97,7 +93,7 @@ class Layer:
 
         return layer
 
-    def forward_propagate(self, inputs: np.ndarray, persist: bool) -> np.ndarray:
+    def _forward_propagate(self, inputs: np.ndarray, persist: bool) -> np.ndarray:
         """
         Returns to output of an inputs.
 
@@ -114,7 +110,8 @@ class Layer:
 
         # Affine transform
         z_array = self.W.dot(inputs)
-        # NOTE : Double transposition, works for now but not nice
+        # NOTE : Double transposition, works but there might be
+        # a nicer way to do this
         z_array = np.add(z_array.T, self.b).T
 
         if persist:
@@ -126,7 +123,7 @@ class Layer:
 
         return outputs
 
-    def initialise(self, previous_layer_size: int) -> (int, int):
+    def _initialise(self, previous_layer_size: int) -> (int, int):
         """
         Initialise the `Layer` (in a network) with respect to the surrounding layers
 
@@ -141,7 +138,7 @@ class Layer:
         self._initialised = True
         return self.dims
 
-    def back_propagate(self, W_T_delta_lp1: np.ndarray, delta_lp1: np.ndarray):
+    def _back_propagate(self, W_T_delta_lp1: np.ndarray, delta_lp1: np.ndarray):
         """
         Compute the error `delta_l` at the inputs based on the error in the outputs.
 
@@ -164,7 +161,7 @@ class Layer:
 
         return W_T_delta_l, delta_l
 
-    def get_d_W(self) -> np.ndarray:
+    def _get_d_W(self) -> np.ndarray:
         """
         Computes the gradients for the matrix of weights using the persisted
         information during forward and backpropagation.
@@ -190,7 +187,7 @@ class Layer:
 
         return d_W
 
-    def get_d_b(self) -> np.ndarray:
+    def _get_d_b(self) -> np.ndarray:
         """
         Computes the gradients for the vector of biases using the persisted
         information backpropagation.
@@ -202,38 +199,20 @@ class Layer:
         """
         return self.delta_l.mean(axis=1)
 
-    def optimize(self, learning_rate: float, momentum: float):
+    def _optimize(self):
         """
-        Optimisation routine: Updates the parameters using gradient
-        descent with momentum.
+        Optimisation routine: Updates the parameters using the Optimizer given at the Layer creation.
 
         Persists the gradient computed for the next iteration.
 
-        :param learning_rate: the learning rate to use
-        :param momentum: the proportion of the last gradient to add
         """
         # Getting gradients
-        d_W = self.get_d_W()
-        d_b = self.get_d_b()
-
-        # Adam update (working but not nice for now)
-        self.m_w = self.beta1_w * self.m_w + (1 - self.beta1_w) * d_W
-        self.v_w = self.beta2_w * self.v_w + (1 - self.beta2_w) * (
-                    d_W * d_W)
-        m_w_cap = self.m_w / (1 - (self.beta1_w ** self.t))
-        v_w_cap = self.v_w / (1 - (self.beta2_w ** self.t))
-
-        self.m_b = self.beta1_b * self.m_b + (1 - self.beta1_b) * d_b
-        self.v_b = self.beta2_b * self.v_b + (1 - self.beta2_b) * (
-                    d_b * d_b)
-        m_b_cap = self.m_b / (1 - (self.beta1_b ** self.t))
-        v_b_cap = self.v_b / (1 - (self.beta2_b ** self.t))
-
-        self.t += 1
+        d_W = self._get_d_W()
+        d_b = self._get_d_b()
 
         # Updating parameters
-        self.W -= learning_rate * m_w_cap / (np.sqrt(v_w_cap) + self.eps)
-        self.b -= learning_rate * m_b_cap / (np.sqrt(v_b_cap) + self.eps)
+        self.W = self._W_optimizer.optimize(self.W, d_W)
+        self.b = self._b_optimizer.optimize(self.b, d_b)
 
     def get_num_parameters(self) -> int:
         """
@@ -274,7 +253,7 @@ class SoftMaxCrossEntropyOutputLayer(Layer):
 
         return value
 
-    def back_propagate(self, y: np.ndarray, **kwargs) -> (np.ndarray, np.ndarray):
+    def _back_propagate(self, y: np.ndarray, **kwargs) -> (np.ndarray, np.ndarray):
         # Value of the error with the Softmax/CrossEntropy combo
         y_hat = self._activation_function.value(self.z_l)
         delta_l = y_hat - y
@@ -320,7 +299,7 @@ class ReLuMSEOutputLayer(Layer):
 
         return value
 
-    def back_propagate(self, y: np.ndarray, **kwargs) -> (np.ndarray, np.ndarray):
+    def _back_propagate(self, y: np.ndarray, **kwargs) -> (np.ndarray, np.ndarray):
         # Value of the error with the Identity/MSE combo
         y_hat = self._activation_function.value(self.z_l)
         der = self._activation_function.der(self.z_l)

@@ -126,17 +126,16 @@ class Network:
         previous_layer_size = self.input_size
         dims = []
         for layer in self.layers:
-            dims.append(layer.initialise(previous_layer_size))
+            dims.append(layer._initialise(previous_layer_size))
             previous_layer_size = layer.size
 
-        self._output_layer.initialise(previous_layer_size)
+        self._output_layer._initialise(previous_layer_size)
 
         self.done_constructing = True
 
         return self
 
-    def train(self, x_train: np.ndarray, y_train: np.ndarray, num_epochs=10, verbose=True,
-              learning_rate=0.01, momentum=0.9):
+    def train(self, x_train: np.ndarray, y_train: np.ndarray, num_epochs=10, verbose=True):
         """
         Train a `Network` using the data provided for a given number of epochs.
 
@@ -146,8 +145,6 @@ class Network:
         :param y_train: the labels to use to train
         :param num_epochs: the number of epochs for the training
         :param verbose: if true, logs progress
-        :param learning_rate: parameter for the gradient descent
-        :param momentum: parameter to add momentum to gradient
         :return: the same `Network` but trained one more time
         """
         self._prepropagation_check(x_train, y_train)
@@ -184,7 +181,7 @@ class Network:
                 assert y_batch.shape[0] == self._output_layer.size
 
                 self._back_propagation(y_batch)
-                self._optimize(learning_rate=learning_rate, momentum=momentum)
+                self._optimize()
 
             self.logger.log_cost_accuracy(n_epoch, cost, accuracy)
 
@@ -231,7 +228,7 @@ class Network:
         return y_pred, y_hat, accuracy
 
     def benchmark(self, x_train: np.ndarray, y_train: np.ndarray, x_test: np.ndarray, y_test: np.ndarray,
-                  num_epochs=10, verbose=True, csv_file_name=None, learning_rate=0.01, momentum=0.9, warn=True):
+                  num_epochs=10, verbose=True, csv_file_name=None, warn=True):
         """
         Benchmark a network. This consist of training a network with dataset (x_train,_train)
         from scratch and testing it at each iteration with dataset (x_test, y_test)
@@ -250,8 +247,6 @@ class Network:
         :param num_epochs: the number of epochs to perform
         :param verbose: if true, logs progress
         :param csv_file_name: the csv file to use to persist the log
-        :param learning_rate: parameter for the optimisation routine
-        :param momentum: parameter to add momentum to gradients
         :param warn: if true, warns about the network being already trained
         :return: a `BenchmarkLogger` containing logs of the benchmark
         """
@@ -292,7 +287,7 @@ class Network:
                 assert y_batch.shape[0] == self._output_layer.size
 
                 self._back_propagation(y_batch)
-                self._optimize(learning_rate=learning_rate, momentum=momentum)
+                self._optimize()
 
                 y_pred_test, y_hat_test, test_acc = self.test(x_test, y_test, warn=False)
 
@@ -310,7 +305,7 @@ class Network:
         :return: a tuple of the list of weights and the list of bias to the `Network`.
         """
         if not self.done_constructing:
-            raise RuntimeError("The Network has not been complety constructed yet.")
+            raise RuntimeError("The Network has not been completely constructed yet.")
 
         Ws = []
         bs = []
@@ -328,16 +323,16 @@ class Network:
         :return: a tuple of two lists : one of the last gradients of weights, the other for the biases
         """
         if not self.done_constructing:
-            raise RuntimeError("The Network has not been complety constructed yet.")
+            raise RuntimeError("The Network has not been completely constructed yet.")
 
         d_Ws = []
         d_bs = []
         for l in self.layers:
-            d_Ws.append(l.get_d_W())
-            d_bs.append(l.get_d_b())
+            d_Ws.append(l._get_d_W())
+            d_bs.append(l._get_d_b())
 
-        d_Ws.append(self._output_layer.get_d_W())
-        d_bs.append(self._output_layer.get_d_b())
+        d_Ws.append(self._output_layer._get_d_W())
+        d_bs.append(self._output_layer._get_d_b())
 
         return d_Ws, d_bs
 
@@ -386,9 +381,9 @@ class Network:
         x_array = inputs
 
         for layer in self.layers:
-            x_array = layer.forward_propagate(x_array, persist=persist)
+            x_array = layer._forward_propagate(x_array, persist=persist)
 
-        y_hat = self._output_layer.forward_propagate(x_array, persist=persist)
+        y_hat = self._output_layer._forward_propagate(x_array, persist=persist)
 
         # Test the consistency w.r.t samples
         # Some boilerplate code here as we need to check both the case of
@@ -401,16 +396,13 @@ class Network:
         return y_hat
 
     def _back_propagation(self, y: np.ndarray):
-
-        # TODO : for now, the transposed matrix of weights is passed
-        # from one layer to another
-        W_T_l, delta_l = self._output_layer.back_propagate(y)
+        W_T_l, delta_l = self._output_layer._back_propagate(y)
 
         for layer in reversed(self.layers):
             assert (W_T_l.shape[0] == layer.size)
-            W_T_l, delta_l = layer.back_propagate(W_T_l, delta_l)
+            W_T_l, delta_l = layer._back_propagate(W_T_l, delta_l)
 
-    def _optimize(self, learning_rate=0.01, momentum=0.9):
-        self._output_layer.optimize(learning_rate, momentum)
+    def _optimize(self):
+        self._output_layer._optimize()
         for layer in self.layers:
-            layer.optimize(learning_rate, momentum)
+            layer._optimize()
