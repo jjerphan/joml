@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="joml",
-    version="0.8.6",
+    version="0.8.7",
     author="Julien Jerphanion",
     author_email="julien.jerphanion@protonmail.com",
     description="A minimalist numpy-baked Neural Network API 🦎",
